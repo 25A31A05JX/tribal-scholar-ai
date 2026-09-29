@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function isStudentDocumentUpload(uid, applicationId) {
+      let oldDocuments = resource.data.documents;
+      let newDocuments = request.resource.data.documents;
+      return newDocuments.size() == oldDocuments.size()
+        && newDocuments.size() <= 5
+        && (newDocuments.size() < 1 || documentUnchangedOrUploaded(oldDocuments[0], newDocuments[0], uid, applicationId))
+        && (newDocuments.size() < 2 || documentUnchangedOrUploaded(oldDocuments[1], newDocuments[1], uid, applicationId))
+        && (newDocuments.size() < 3 || documentUnchangedOrUploaded(oldDocuments[2], newDocuments[2], uid, applicationId))
+        && (newDocuments.size() < 4 || documentUnchangedOrUploaded(oldDocuments[3], newDocuments[3], uid, applicationId))
+        && (newDocuments.size() < 5 || documentUnchangedOrUploaded(oldDocuments[4], newDocuments[4], uid, applicationId));
+    }
+
+    function allDocumentsMissing(documents) {
+      return documents.size() <= 5
+        && (documents.size() < 1 || documents[0].status == 'Missing')
+        && (documents.size() < 2 || documents[1].status == 'Missing')
+        && (documents.size() < 3 || documents[2].status == 'Missing')
+        && (documents.size() < 4 || documents[3].status == 'Missing')
+        && (documents.size() < 5 || documents[4].status == 'Missing');
+    }
+
+    function documentUnchangedOrUploaded(oldDocument, newDocument, uid, applicationId) {
+      return newDocument.name == oldDocument.name
+        && (
+          (oldDocument.status == 'Verified' && newDocument.status == 'Verified')
+          || (oldDocument.status != 'Verified' && newDocument.status in ['Missing', 'Uploaded', 'Under Review', 'Rejected'])
+        )
+        && (
+          !('storagePath' in newDocument)
+          || newDocument.storagePath.matches('documents/' + uid + '/' + applicationId + '/.*')
+        );
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isAdmin() || (signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'student'
+        && request.resource.data.uid == uid);
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email'])
+          && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
+    }
+
+    match /students/{uid} {
+      allow read, create, update: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /scholarships/{scholarshipId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /applications/{applicationId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId == request.auth.uid);
+      allow create: if isAdmin() || (signedIn()
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.status == 'Submitted'
+        && allDocumentsMissing(request.resource.data.documents));
+      allow update: if isAdmin()
+        || (signedIn()
+          && resource.data.studentId == request.auth.uid
+          && request.resource.data.studentId == resource.data.studentId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['documents', 'status', 'deficiency', 'updatedAt'])
+          && isStudentDocumentUpload(request.auth.uid, applicationId)
+          && (
+            (resource.data.status == 'Deficiency'
+              && request.resource.data.status == 'Resubmitted'
+              && !('deficiency' in request.resource.data))
+            || (resource.data.status != 'Deficiency'
+              && request.resource.data.status == resource.data.status
+              && request.resource.data.get('deficiency', null) == resource.data.get('deficiency', null))
+          ));
+      allow delete: if isAdmin();
+    }
+
+    match /documents/{documentId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId == request.auth.uid);
+      allow create: if isAdmin() || (signedIn()
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.status == 'Missing');
+      allow update: if isAdmin() || (signedIn()
+        && resource.data.studentId == request.auth.uid
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.applicationId == resource.data.applicationId
+        && resource.data.status != 'Verified'
+        && request.resource.data.status != 'Verified'
+        && (
+          request.resource.data.status == resource.data.status
+          || request.resource.data.status == 'Uploaded'
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'fileName', 'storagePath']));
+      allow delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() || (signedIn() && request.resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+      allow delete: if isAdmin();
+    }
+  }
+}

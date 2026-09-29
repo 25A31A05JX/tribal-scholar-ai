@@ -1,0 +1,38 @@
+node_modules/
+dist/
+coverage/
+
+# Local environment and secret files
+.env*
+!.env.example
+!.env.*.example
+secrets/
+credentials/
+*service-account*.json
+*serviceaccount*.json
+*firebase-adminsdk*.json
+firebase-admin-key*.json
+google-credentials*.json
+*.pem
+*.key
+
+# Local deployment state and logs
+.firebase/
+.netlify/
+.vercel/
+.railway/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# Operating system and editor temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*.tmp
+*.temp
+*.code-workspace
+.idea/
